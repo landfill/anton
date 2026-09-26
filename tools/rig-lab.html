@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<title>Rig Lab</title>
+<style>
+  body { margin: 0; display: grid; grid-template-columns: 1fr 340px; height: 100vh; font: 12px system-ui; background: #1b1a19; color: #ddd; }
+  canvas { width: 100%; height: 100vh; display: block; }
+  #panel { overflow: auto; padding: 8px; }
+  label { display: grid; grid-template-columns: 150px 1fr 34px; gap: 6px; align-items: center; }
+  #wire { margin-bottom: 8px; }
+</style>
+<script type="importmap">{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel"><button id="reset">reset</button> <label style="display:inline"><input type="checkbox" id="yaw" /> head sway</label><div id="sl"></div></div>
+<script type="module">
+import * as THREE from "three";
+import { buildFaceRig, BLENDSHAPE_NAMES } from "../src/face/faceRig.js";
+import { FaceView } from "../src/face/faceView.js";
+
+const [model, tess, tex] = await Promise.all([
+  fetch("../assets/face-landmarks.json").then((r) => r.json()),
+  fetch("../src/face/tesselation.json").then((r) => r.json()),
+  new THREE.TextureLoader().loadAsync("../assets/face.webp"),
+]);
+const rig = buildFaceRig(model, tess);
+const view = new FaceView(document.getElementById("c"), rig, tex);
+window.view = view; window.rig = rig;
+const w = new Float32Array(52);
+window.w = w;
+const sl = document.getElementById("sl");
+BLENDSHAPE_NAMES.forEach((n, i) => {
+  const l = document.createElement("label");
+  l.innerHTML = `<span>${n}</span><input type="range" min="0" max="1" step="0.01" value="0"><output>0</output>`;
+  const inp = l.querySelector("input"), out = l.querySelector("output");
+  inp.oninput = () => { w[i] = +inp.value; out.textContent = inp.value; };
+  sl.append(l);
+});
+document.getElementById("reset").onclick = () => { w.fill(0); sl.querySelectorAll("input").forEach((i) => (i.value = 0)); };
+const resize = () => { const c = view.renderer.domElement; view.resize(c.clientWidth, c.clientHeight); };
+addEventListener("resize", resize); resize();
+const t0 = performance.now();
+(function loop() {
+  const t = (performance.now() - t0) / 1000;
+  const sway = document.getElementById("yaw").checked;
+  view.update(w, { yaw: sway ? 0.05 * Math.sin(t) : 0, pitch: sway ? 0.04 * Math.sin(t * 0.7) : 0, roll: sway ? 0.03 * Math.sin(t * 0.5) : 0, tx: 0, ty: 0, breath: 0 });
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>

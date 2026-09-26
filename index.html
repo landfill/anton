@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Jev Face Lab</title>
+<meta name="description" content="메시지를 받은 사람이 느낄 감정을 TypeSafe AI Jev가 판단하고, 사진 기반 얼굴 모델이 실시간 표정으로 반응합니다." />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+<link rel="stylesheet" href="styles.css" />
+<script type="importmap">
+  { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>Jev Face Lab</h1>
+        <p>메시지를 받은 사람의 감정 반응을 얼굴로 확인하는 테스트 도구</p>
+      </div>
+    </div>
+    <div class="engine" role="group" aria-label="Jev 엔진 선택">
+      <span class="engine-dot" id="engineDot"></span>
+      <button class="seg" data-mode="remote" id="modeRemote">Jev API</button>
+      <button class="seg" data-mode="local" id="modeLocal">로컬 시뮬레이터</button>
+    </div>
+  </header>
+
+  <ol class="pipeline" aria-label="처리 파이프라인">
+    <li data-stage="text"><b>텍스트</b><small id="pText">0자</small></li>
+    <li data-stage="jev"><b>Jev</b><small id="pJev">대기</small></li>
+    <li data-stage="emotion"><b>감정 + 강도</b><small id="pEmotion">중립 0.00</small></li>
+    <li data-stage="convert"><b>표정 변환</b><small id="pConvert">FACS 프리셋</small></li>
+    <li data-stage="blend"><b>52 Blendshape</b><small id="pBlend">활성 0</small></li>
+    <li data-stage="face"><b>얼굴</b><small id="pFace">60fps</small></li>
+  </ol>
+
+  <main class="main">
+    <section class="stage-col">
+      <div class="stage" id="stage">
+        <canvas id="face" aria-label="메시지에 반응하는 얼굴 모델"></canvas>
+        <div class="loading" id="loading">얼굴 모델 불러오는 중…</div>
+        <div class="verdict" aria-live="polite">
+          <span class="verdict-kicker" id="verdictKicker">지금 읽는 순간</span>
+          <span class="verdict-emotion"><span id="verdictEmotion">중립</span><span class="verdict-mix" id="verdictMix"></span></span>
+          <span class="verdict-meta"><span id="verdictLevel">반응 없음</span> · 강도 <span id="verdictIntensity">0.00</span></span>
+          <span class="meter"><span id="verdictMeter"></span></span>
+          <span class="verdict-other" id="verdictOther"></span>
+        </div>
+        <div class="stage-controls">
+          <div class="basis" role="group" aria-label="표정 기준">
+            <span>표정 기준</span>
+            <button type="button" data-basis="live" title="방금 읽은 구절에 그때그때 반응">지금 읽는 부분</button>
+            <button type="button" data-basis="whole" title="메시지 전체를 다 읽은 뒤의 감정">메시지 전체</button>
+          </div>
+          <label class="gain" title="감정이 얼굴에 드러나는 정도">
+            <span>표현 강도</span>
+            <input type="range" id="gain" min="0.5" max="2.5" step="0.1" aria-label="표현 강도" />
+            <output id="gainOut">×1.5</output>
+          </label>
+        </div>
+        <div class="reading" id="reading" hidden><span></span><span></span><span></span> 읽는 중</div>
+      </div>
+
+      <div class="composer">
+        <div class="examples" id="examples" aria-label="예시 메시지"></div>
+        <div class="input-row">
+          <textarea id="message" rows="1" placeholder="상대에게 보낼 메시지를 입력해 보세요" aria-label="메시지 입력" spellcheck="false"></textarea>
+          <button class="icon-btn" id="clearBtn" title="지우기" aria-label="지우기">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+        <p class="hint">한 글자씩 입력하거나 고칠 때마다 Jev가 다시 판단하고, 얼굴이 곧바로 반응합니다. 예시를 누르면 한 글자씩 자동 입력됩니다.</p>
+      </div>
+    </section>
+
+    <aside class="panel">
+      <div class="tabs" role="tablist">
+        <button role="tab" class="tab active" data-tab="jev" aria-selected="true">Jev 판단</button>
+        <button role="tab" class="tab" data-tab="bs" aria-selected="false">Blendshape 52</button>
+      </div>
+
+      <div class="tab-body" data-body="jev">
+        <section class="card">
+          <header class="card-head"><h2>감정 분포 · 메시지 전체</h2><span class="muted" id="confidence">신뢰도 –</span></header>
+          <ul class="dist" id="dist"></ul>
+        </section>
+        <section class="card">
+          <header class="card-head"><h2>판단 근거</h2><span class="muted" id="cueSource"></span></header>
+          <ul class="cues" id="cues"><li class="empty">메시지를 입력하면 Jev가 반응한 단서가 여기에 표시됩니다.</li></ul>
+        </section>
+        <section class="card">
+          <header class="card-head"><h2>변화 기록</h2><span class="muted">입력이 멈춘 시점마다 기록</span></header>
+          <ol class="history" id="history"><li class="empty">아직 기록이 없습니다.</li></ol>
+        </section>
+        <section class="card meta-card">
+          <dl>
+            <div><dt>엔진</dt><dd id="metaEngine">–</dd></div>
+            <div><dt>응답 시간</dt><dd id="metaLatency">–</dd></div>
+            <div><dt>모델</dt><dd id="metaModel">–</dd></div>
+          </dl>
+        </section>
+      </div>
+
+      <div class="tab-body" data-body="bs" hidden>
+        <section class="card">
+          <header class="card-head">
+            <h2>ARKit Blendshape</h2>
+            <label class="switch"><input type="checkbox" id="manual" /> <span>수동 조작</span></label>
+          </header>
+          <p class="muted small">표정 변환 엔진이 만든 52개 계수입니다. 깜빡임, 시선, 미세 움직임까지 합성된 최종값이 표시됩니다. 수동 조작을 켜면 슬라이더로 직접 움직일 수 있습니다.</p>
+          <div class="bs-list" id="bsList"></div>
+        </section>
+      </div>
+    </aside>
+  </main>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

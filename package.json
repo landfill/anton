@@ -1,0 +1,9 @@
+{
+  "name": "jev-face-lab",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node tests/localJev.test.mjs && node tests/jevClient.test.mjs"
+  }
+}
