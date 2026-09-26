@@ -1,2 +1,8 @@
 .env
 node_modules/
+.vercel/
+
+# 개발용 파일(로컬에만 둠)
+tools/
+tests/
+.claude/

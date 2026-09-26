@@ -7,6 +7,7 @@ import { readFile, stat } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join, normalize, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { handleJev, handleStatus, jevConfig } from "./lib/jevProxy.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 5173);
@@ -19,10 +20,6 @@ if (existsSync(envPath)) {
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, "");
   }
 }
-
-const API_KEY = process.env.TYPESAFE_API_KEY?.trim();
-const BASE_URL = (process.env.TYPESAFE_BASE_URL || "https://api.typesafe.ai").replace(/\/+$/, "");
-const MODEL = process.env.TYPESAFE_DEFAULT_MODEL || "jev-latest";
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -37,66 +34,29 @@ const MIME = {
   ".obj": "text/plain; charset=utf-8",
 };
 
-function sendJson(res, status, body) {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
-  res.end(JSON.stringify(body));
-}
-
-async function readBody(req) {
+// Node 요청 → Web Request 로 바꿔 Vercel 함수와 같은 프록시 로직(lib/jevProxy.mjs)을 쓴다
+async function toWebRequest(req) {
   const chunks = [];
   for await (const c of req) chunks.push(c);
-  return Buffer.concat(chunks).toString("utf8");
+  const headers = new Headers();
+  for (const [k, v] of Object.entries(req.headers)) if (typeof v === "string") headers.set(k, v);
+  headers.set("x-real-ip", req.socket.remoteAddress || "local");
+  return new Request(`http://${req.headers.host}${req.url}`, {
+    method: req.method,
+    headers,
+    body: req.method === "GET" || req.method === "HEAD" ? undefined : Buffer.concat(chunks),
+  });
 }
-
-async function handleJev(req, res) {
-  if (!API_KEY) return sendJson(res, 503, { error: "TYPESAFE_API_KEY is not configured on the server." });
-  let payload;
-  try {
-    payload = JSON.parse(await readBody(req));
-  } catch {
-    return sendJson(res, 400, { error: "Invalid JSON body." });
-  }
-  // 브라우저가 보낸 state/questions 만 전달한다.
-  const body = { state: payload.state, questions: payload.questions, model: payload.model || MODEL };
-  const started = Date.now();
-  try {
-    const call = () => fetch(`${BASE_URL}/v1/systemone`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${API_KEY}`,
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "X-TypeSafe-Runtime": `node/${process.versions.node}`,
-      },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10000),
-    });
-    let upstream = await call();
-    // 429 / 5xx 는 한 번만 재시도(빠른 타이핑 중 일시적 제한 대비)
-    if (upstream.status === 429 || upstream.status >= 500) {
-      const ra = Number(upstream.headers.get("retry-after-ms")) || Number(upstream.headers.get("retry-after")) * 1000 || 400;
-      await new Promise((r) => setTimeout(r, Math.min(ra, 2000)));
-      upstream = await call();
-    }
-    const text = await upstream.text();
-    res.writeHead(upstream.status, {
-      "Content-Type": "application/json; charset=utf-8",
-      "Cache-Control": "no-store",
-      "X-Jev-Latency": String(Date.now() - started),
-    });
-    res.end(text);
-  } catch (err) {
-    sendJson(res, 502, { error: `Upstream error: ${err.message}` });
-  }
+async function sendWebResponse(res, response) {
+  res.writeHead(response.status, Object.fromEntries(response.headers));
+  res.end(Buffer.from(await response.arrayBuffer()));
 }
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
-  if (url.pathname === "/api/jev/status") {
-    return sendJson(res, 200, { configured: Boolean(API_KEY), model: MODEL });
-  }
-  if (url.pathname === "/api/jev" && req.method === "POST") return handleJev(req, res);
+  if (url.pathname === "/api/jev/status") return sendWebResponse(res, handleStatus());
+  if (url.pathname === "/api/jev") return sendWebResponse(res, await handleJev(await toWebRequest(req)));
 
   let path = decodeURIComponent(url.pathname);
   if (path.endsWith("/")) path += "index.html";
@@ -130,6 +90,7 @@ server.on("error", (err) => {
 });
 server.on("listening", () => {
   console.log(`Jev Face Lab → http://localhost:${port}`);
-  console.log(API_KEY ? `Jev API: 연결됨 (model ${MODEL})` : "Jev API: 키 없음 → 브라우저의 로컬 Jev 시뮬레이터로 동작");
+  const cfg = jevConfig();
+  console.log(cfg.apiKey ? `Jev API: 연결됨 (model ${cfg.model}, IP당 분당 ${cfg.perIpPerMin}회 제한)` : "Jev API: 키 없음 → 브라우저의 로컬 Jev 시뮬레이터로 동작");
 });
 server.listen(port);

@@ -52,12 +52,23 @@ export function normalizeJevResponse(data) {
   };
 }
 
+/** 한글 조합 중인 상태(끝이 낱자모)인지: "고ㅁ", "ㄱ" → true, "ㅋㅋ", "ㅠㅠ" → false */
+export function isComposing(text) {
+  const chars = [...text.trimEnd()];
+  const last = chars[chars.length - 1] || "";
+  if (!/[ㄱ-ㅎㅏ-ㅣ]/.test(last)) return false;
+  return chars[chars.length - 2] !== last; // 같은 자모 반복(ㅋㅋ, ㅠㅠ, ㅎㅎ)은 감정 표현이라 판단 대상
+}
+
 export class JevClient {
   constructor() {
     this.mode = "local"; // "remote" | "local"
     this.remoteAvailable = false;
     this.model = null;
+    this.limitPerMin = null;
     this._abort = null;
+    this._cache = new Map(); // 같은 문장을 다시 입력하면 재호출하지 않는다
+    this.stats = { sent: 0, cached: 0 };
   }
 
   async init() {
@@ -66,6 +77,7 @@ export class JevClient {
       const s = await r.json();
       this.remoteAvailable = Boolean(s.configured);
       this.model = s.model;
+      this.limitPerMin = s.limitPerMin ?? null;
       if (this.remoteAvailable) this.mode = "remote";
     } catch {
       this.remoteAvailable = false;
@@ -85,8 +97,14 @@ export class JevClient {
       const m = analyzeLocal(focusSegment(message));
       return { ...r, moment: { ...m, fragment: focusSegment(message) }, source: "local", latencyMs: performance.now() - t0 };
     }
+    const hit = this._cache.get(message);
+    if (hit) {
+      this.stats.cached++;
+      return { ...hit, latencyMs: performance.now() - t0, cached: true };
+    }
     this._abort?.abort();
     const ctrl = new AbortController();
+    this.stats.sent++;
     this._abort = ctrl;
     const res = await fetch("/api/jev", {
       method: "POST",
@@ -95,11 +113,18 @@ export class JevClient {
       signal: ctrl.signal,
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body?.error?.message || body?.error || body?.detail || `HTTP ${res.status}`);
+    if (!res.ok) {
+      const err = new Error(body?.error?.message || body?.error || body?.detail || `HTTP ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
     const r = normalizeJevResponse(body);
     // 원격 판단에도 사람이 읽을 수 있는 단서는 로컬 분석기로 보조 표시한다
     r.cues = analyzeLocal(message).cues;
     if (r.moment) r.moment.fragment = focusSegment(message);
-    return { ...r, source: "remote", latencyMs: performance.now() - t0 };
+    const out = { ...r, source: "remote", latencyMs: performance.now() - t0 };
+    this._cache.set(message, out);
+    if (this._cache.size > 300) this._cache.delete(this._cache.keys().next().value);
+    return out;
   }
 }

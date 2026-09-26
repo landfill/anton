@@ -3,7 +3,7 @@
 import * as THREE from "three";
 import { buildFaceRig, BLENDSHAPE_NAMES } from "./face/faceRig.js";
 import { FaceView } from "./face/faceView.js";
-import { JevClient } from "./jev/jevClient.js";
+import { JevClient, isComposing } from "./jev/jevClient.js";
 import { EMOTIONS, EMOTION_LABELS, analyzeLocal, focusSegment } from "./jev/localJev.js";
 import { expressionFromAnalysis, DEFAULT_EXPRESSIVENESS } from "./expression/emotionMap.js";
 import { FaceAnimator } from "./expression/animator.js";
@@ -182,7 +182,12 @@ function pushHistory(text, r) {
 // ── 입력 → 판단 ─────────────────────────────────────────
 const input = $("message");
 let seq = 0;
-let debounceTimer = 0;
+// 원격 호출 간격: 계속 타이핑해도 0.4초에 한 번(최신 텍스트로), 멈추면 0.12초 뒤 마지막 한 번 → 사용자당 최대 분당 150회
+const REMOTE_MIN_GAP_MS = 400;
+const REMOTE_SETTLE_MS = 120;
+let remoteTimer = 0;
+let lastRemoteAt = 0;
+let limitToastAt = 0;
 let historyTimer = 0;
 let readingTimer = 0;
 let current = null;
@@ -218,6 +223,18 @@ function applyAnalysis(r) {
   pulse("jev", "emotion", "convert", "blend");
 }
 
+function scheduleRemote() {
+  if (remoteTimer) return; // 이미 예약됨: 실행 시점의 최신 텍스트를 보낸다
+  const wait = Math.max(REMOTE_SETTLE_MS, lastRemoteAt + REMOTE_MIN_GAP_MS - performance.now());
+  remoteTimer = setTimeout(() => {
+    remoteTimer = 0;
+    // 한글 조합 중(끝이 낱자모)이면 보내지 않는다 — 글자가 완성되면 다음 입력이 다시 예약한다
+    if (isComposing(input.value)) return;
+    lastRemoteAt = performance.now();
+    runAnalysis();
+  }, wait);
+}
+
 async function runAnalysis() {
   const text = input.value;
   const my = ++seq;
@@ -229,7 +246,15 @@ async function runAnalysis() {
   } catch (err) {
     if (err.name === "AbortError" || my !== seq) return;
     // 이번 호출만 로컬 판단으로 대체하고 Jev 모드는 유지한다(일시적 429/5xx 대비)
-    toast(`Jev API 호출 실패: ${err.message} — 이번 입력은 로컬 시뮬레이터 결과로 표시합니다.`);
+    if (err.status === 429) {
+      $("pJev").textContent = "요청 제한";
+      if (performance.now() - limitToastAt > 30000) {
+        limitToastAt = performance.now();
+        toast(`Jev 요청 제한에 걸려 잠시 로컬 시뮬레이터로 표시합니다. (${err.message})`);
+      }
+    } else {
+      toast(`Jev API 호출 실패: ${err.message} — 이번 입력은 로컬 시뮬레이터 결과로 표시합니다.`);
+    }
     const r = { ...analyzeLocal(text), moment: { ...analyzeLocal(focusSegment(text)), fragment: focusSegment(text) }, source: "local", latencyMs: 0 };
     if (my === seq) applyAnalysis(r);
   } finally {
@@ -249,8 +274,7 @@ function onTextChanged() {
   clearTimeout(readingTimer);
   readingTimer = setTimeout(() => { animator.setReading(false); $("reading").hidden = true; }, 1100);
 
-  clearTimeout(debounceTimer);
-  if (jev.mode === "remote") debounceTimer = setTimeout(runAnalysis, 140);
+  if (jev.mode === "remote") scheduleRemote();
   else runAnalysis();
 
   clearTimeout(historyTimer);

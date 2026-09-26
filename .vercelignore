@@ -1,0 +1,7 @@
+# 배포에서 제외(로컬 개발용). lib/는 api 함수가 쓰므로 제외하면 안 된다.
+.env
+.env.*
+server.mjs
+tools/
+tests/
+.claude/
