@@ -18,7 +18,7 @@ npm start            # http://localhost:5173 (포트가 사용 중이면 다음 
 
 ## Vercel 배포
 
-1. Vercel에서 이 저장소를 Import → Framework Preset **Other**, Build Command 비움(빌드 없음).
+1. Vercel에서 이 저장소를 Import. 설정은 `vercel.json`에 있습니다(Framework 없음, 정적 파일은 `public/`).
 2. Settings → Environment Variables에 `TYPESAFE_API_KEY` 추가.
 3. 배포. 정적 파일은 루트에서, API는 `api/jev/index.js`(POST `/api/jev`)와 `api/jev/status.js`(GET `/api/jev/status`)가 처리합니다.
 
@@ -53,13 +53,13 @@ Upstash Redis 같은 공유 저장소로 바꾸세요. 제한에 걸리면 앱�
 
 | 경로 | 역할 |
 | --- | --- |
-| `assets/face.webp`, `assets/face-landmarks.json` | 원본 사진과 bake된 MediaPipe 3D 랜드마크 478점 |
-| `src/face/faceRig.js` | 얼굴 메시(눈·입 구멍, 눈 내부/구강 레이어) + ARKit 52 모프 델타 생성 |
-| `src/face/faceView.js` | Three.js 렌더러: 델타 합성, 머리 회전, 시선(홍채) 셰이더, 홍조 |
-| `src/jev/jevClient.js` | Jev `POST /v1/systemone` 요청/응답 정규화, 호출 간격·캐시, 로컬 대체 |
-| `src/jev/localJev.js` | 오프라인 판단기(말줄임표·반전·부정 범위·지금 읽는 구절) |
-| `src/expression/emotionMap.js` | 감정 → blendshape·머리 자세·안색 매핑 |
-| `src/expression/animator.js` | 스프링 보간, 깜빡임, 시선 도약, 읽기 동작, 호흡, 놀람 반응 |
+| `public/assets/face.webp`, `public/assets/face-landmarks.json` | 원본 사진과 bake된 MediaPipe 3D 랜드마크 478점 |
+| `public/src/face/faceRig.js` | 얼굴 메시(눈·입 구멍, 눈 내부/구강 레이어) + ARKit 52 모프 델타 생성 |
+| `public/src/face/faceView.js` | Three.js 렌더러: 델타 합성, 머리 회전, 시선(홍채) 셰이더, 홍조 |
+| `public/src/jev/jevClient.js` | Jev `POST /v1/systemone` 요청/응답 정규화, 호출 간격·캐시, 로컬 대체 |
+| `public/src/jev/localJev.js` | 오프라인 판단기(말줄임표·반전·부정 범위·지금 읽는 구절) |
+| `public/src/expression/emotionMap.js` | 감정 → blendshape·머리 자세·안색 매핑 |
+| `public/src/expression/animator.js` | 스프링 보간, 깜빡임, 시선 도약, 읽기 동작, 호흡, 놀람 반응 |
 | `lib/jevProxy.mjs` | Jev 프록시(요청 제한·출처 확인·재시도) — Vercel 함수와 로컬 서버가 공유 |
 | `api/jev/` | Vercel 함수 |
 | `server.mjs` | 로컬 개발 서버(정적 파일 + 같은 프록시) |

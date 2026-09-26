@@ -1,5 +1,5 @@
 // Jev Face Lab 로컬 서버
-// - 정적 파일 서빙 (ES module / fetch 때문에 file:// 로는 동작하지 않음)
+// - public/ 정적 파일 서빙 (ES module / fetch 때문에 file:// 로는 동작하지 않음)
 // - /api/jev : TypeSafe AI Jev(System One) 프록시. API 키는 서버에만 두고 브라우저에 노출하지 않는다.
 //   키는 환경변수 TYPESAFE_API_KEY 또는 프로젝트 루트의 .env 에서 읽는다.
 import { createServer } from "node:http";
@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { handleJev, handleStatus, jevConfig } from "./lib/jevProxy.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
+const PUBLIC = join(ROOT, "public");
 const PORT = Number(process.env.PORT || 5173);
 
 // .env 간단 파서 (의존성 없이)
@@ -58,10 +59,12 @@ const server = createServer(async (req, res) => {
   if (url.pathname === "/api/jev/status") return sendWebResponse(res, handleStatus());
   if (url.pathname === "/api/jev") return sendWebResponse(res, await handleJev(await toWebRequest(req)));
 
+  // 정적 파일은 public/ (Vercel과 동일). 로컬 개발 도구 /tools/ 만 프로젝트 루트에서 서빙
   let path = decodeURIComponent(url.pathname);
   if (path.endsWith("/")) path += "index.html";
-  const file = normalize(join(ROOT, path));
-  if (!file.startsWith(ROOT) || file.includes(`${ROOT}\\.env`) || file.endsWith(".env")) {
+  const base = path.startsWith("/tools/") ? ROOT : PUBLIC;
+  const file = normalize(join(base, path));
+  if (!file.startsWith(base) || file.endsWith(".env")) {
     res.writeHead(403);
     return res.end("Forbidden");
   }
