@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "메시지에서 실시간 표정까지",
+    "output": "docs/jev-execution.sequence.html",
+    "viewBox": [1040, 480],
+    "column_fit": "spread",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "input",
+        "label": "입력과 간격",
+        "focus": ["user", "app", "client"],
+        "note": "원격 모드는 0.4초에 한 번만 최신 문장을 보낸다. 끝이 낱자모이면 조합 중으로 보고 보내지 않는다."
+      },
+      {
+        "id": "jev-call",
+        "label": "Jev 왕복",
+        "focus": ["client", "proxy", "jev"],
+        "note": "API 키는 jevProxy에만 있다. System One은 감정·강도·순간 판단을 한 번의 POST로 답한다."
+      },
+      {
+        "id": "expression",
+        "label": "표정 렌더",
+        "focus": ["app", "face", "user"],
+        "note": "판단은 FACS 프리셋으로 52 blendshape가 되고, FaceView가 매 프레임 사진 얼굴에 합성한다."
+      }
+    ]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "사용자", "sublabel": "브라우저" },
+    { "id": "app", "type": "frontend", "label": "main.js", "sublabel": "입력·혼합" },
+    { "id": "face", "type": "frontend", "label": "표정 엔진", "sublabel": "emotionMap·FaceView" },
+    { "id": "client", "type": "frontend", "label": "JevClient", "sublabel": "캐시·정규화" },
+    { "id": "proxy", "type": "backend", "label": "jevProxy", "sublabel": "POST /api/jev" },
+    { "id": "jev", "type": "external", "label": "System One", "sublabel": "/v1/systemone" }
+  ],
+  "segments": [
+    { "from": 155, "to": 215, "label": "입력" },
+    { "from": 220, "to": 355, "label": "Jev 왕복" },
+    { "from": 360, "to": 430, "label": "표정" }
+  ],
+  "messages": [
+    {
+      "id": "type",
+      "from": "user",
+      "to": "app",
+      "y": 165,
+      "label": "텍스트 입력",
+      "variant": "emphasis"
+    },
+    {
+      "id": "analyze",
+      "from": "app",
+      "to": "client",
+      "y": 193,
+      "label": "analyze",
+      "variant": "default",
+      "note": "원격은 0.4초 간격, 입력이 멈추면 0.12초 뒤 마지막 한 번. 같은 문장은 캐시."
+    },
+    {
+      "id": "post-api",
+      "from": "client",
+      "to": "proxy",
+      "y": 221,
+      "label": "POST /api/jev",
+      "variant": "emphasis"
+    },
+    {
+      "id": "post-systemone",
+      "from": "proxy",
+      "to": "jev",
+      "y": 249,
+      "label": "POST /v1/systemone",
+      "variant": "security",
+      "note": "Bearer 키는 서버 환경변수에만 있다. 429·5xx는 한 번 재시도한다."
+    },
+    {
+      "id": "answers",
+      "from": "jev",
+      "to": "proxy",
+      "y": 277,
+      "label": "감정·강도·순간",
+      "variant": "return"
+    },
+    {
+      "id": "json",
+      "from": "proxy",
+      "to": "client",
+      "y": 305,
+      "label": "JSON 응답",
+      "variant": "return"
+    },
+    {
+      "id": "normalized",
+      "from": "client",
+      "to": "app",
+      "y": 333,
+      "label": "정규화 판단",
+      "variant": "return"
+    },
+    {
+      "id": "facs",
+      "from": "app",
+      "to": "face",
+      "y": 361,
+      "label": "FACS 프리셋",
+      "variant": "emphasis",
+      "note": "live 기준이면 지금 구절 80%와 메시지 전체 20%를 섞은 뒤 표정으로 바꾼다."
+    },
+    {
+      "id": "render",
+      "from": "face",
+      "to": "user",
+      "y": 389,
+      "label": "실시간 표정",
+      "variant": "return"
+    }
+  ],
+  "activations": [
+    { "participant": "app", "from": 165, "to": 405, "type": "frontend" },
+    { "participant": "client", "from": 193, "to": 348, "type": "frontend" },
+    { "participant": "proxy", "from": 221, "to": 320, "type": "backend" },
+    { "participant": "jev", "from": 249, "to": 292, "type": "external" },
+    { "participant": "face", "from": 361, "to": 405, "type": "frontend" }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "원격 경로",
+      "items": [
+        "시작 시 GET /api/jev/status로 키를 확인하고, 판단은 POST /api/jev → POST /v1/systemone 한 왕복이다"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "간격·캐시·로컬 대체",
+      "items": [
+        "조합 중·0.4초 간격·같은 문장 캐시. 키가 없거나 429면 localJev가 같은 형식으로 대신 판단한다"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "표정",
+      "items": [
+        "emotionMap이 52 blendshape로 바꾸고, FaceAnimator가 보간한 뒤 FaceView가 매 프레임 합성한다"
+      ]
+    }
+  ]
+}

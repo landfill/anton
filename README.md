@@ -7,6 +7,41 @@
 텍스트 → Jev(System One) → 감정 분포 + 강도 → 표정 변환 엔진(FACS 프리셋) → 52 Blendshape → 사진 기반 얼굴 → 실시간 표정
 ```
 
+## 실행 구조
+
+한 문장을 판단할 때의 호출 순서입니다. 키 확인(`GET /api/jev/status`)은 페이지를 열 때 한 번이고, 아래는 그다음 원격 경로입니다.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 사용자<br/>브라우저
+    participant M as main.js<br/>입력·혼합
+    participant F as 표정 엔진<br/>emotionMap·FaceView
+    participant C as JevClient<br/>캐시·정규화
+    participant P as jevProxy<br/>POST /api/jev
+    participant S as System One<br/>/v1/systemone
+
+    U->>M: 텍스트 입력
+    M->>C: analyze
+    Note right of C: 한글 조합 중에는 보내지 않음<br/>0.4초에 한 번 최신 문장만<br/>같은 문장은 캐시
+    alt 키 있음 — 원격 경로
+        C->>+P: POST /api/jev
+        P->>+S: POST /v1/systemone
+        Note over P,S: Bearer 키는 서버 환경변수에만<br/>429·5xx는 한 번 재시도
+        S-->>-P: 감정·강도·순간
+        P-->>-C: JSON 응답
+    else 키 없음 · 429 · 실패
+        C->>C: localJev가 같은 형식으로 판단
+    end
+    C-->>M: 정규화 판단
+    M->>+F: FACS 프리셋 → 52 blendshape
+    F-->>-U: 실시간 표정
+```
+
+`main.js`가 입력을 거른 뒤 `JevClient`가 `POST /api/jev`로 `jevProxy`에 보냅니다. 프록시만 API 키를 갖고 TypeSafe `POST /v1/systemone`을 호출합니다. 돌아온 감정·강도·순간 판단을 `emotionMap`이 FACS 프리셋으로 52 blendshape로 바꾸고, `FaceView`가 사진 얼굴에 합성합니다. 키가 없거나 429·실패면 `localJev`가 같은 형식의 판단을 만들고, 표정 이후 경로는 같습니다. 원격 호출은 한글 조합 중에는 나가지 않고, 0.4초에 한 번 최신 문장만 보내며, 같은 문장은 캐시를 씁니다.
+
+장면별로 따라가는 상세 다이어그램은 저장소를 내려받아 [`docs/jev-execution.sequence.html`](docs/jev-execution.sequence.html)을 브라우저에서 열면 됩니다(GitHub 웹에서는 렌더링되지 않습니다). 원본 데이터는 [`docs/jev-execution.sequence.json`](docs/jev-execution.sequence.json)입니다.
+
 ## 로컬 실행
 
 ```bash
