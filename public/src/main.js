@@ -16,36 +16,104 @@ const EXAMPLES = [
   { text: "너 때문에 너무 속상해" },
   { text: "미안해 ㅠㅠ" },
   { text: "너 진짜 최악이야 ㅡㅡ" },
-  { text: "닥쳐" },
   { text: "헐 설마 그게 진짜야?!" },
-  { text: "우리 얘기 좀 해" },
-  { text: "어떡해 사고 났어" },
   { text: "그게 무슨 말이야;;" },
   { text: "으 역겨워 🤮" },
-  { text: "알겠어." },
   { text: "고마워..." },
   { text: "고마워. 다시는 연락하지 마.", flip: true },
-  { text: "축하해! 근데 나 안 가", flip: true },
   { text: "보고 싶었어. 근데 이제 필요 없어", flip: true },
   { text: "너는 아주 사랑스러....럽지 않은 인상이지만 너를 좋아하... 지도 않아..", flip: true, from: "joy", label: "사랑스러....럽지 않은… (롤러코스터)" },
 ];
 const levelOf = (x) => (x < 0.05 ? "반응 없음" : x < 0.5 ? "미묘함" : x < 0.7 ? "뚜렷함" : x < 0.88 ? "강함" : "매우 강함");
 const colorOf = (e) => `var(--${e})`;
 
-// ── 얼굴 모델 로드 ────────────────────────────────────────
-const [model, tesselation, texture] = await Promise.all([
-  fetch("assets/face-landmarks.json").then((r) => r.json()),
-  fetch("src/face/tesselation.json").then((r) => r.json()),
-  new THREE.TextureLoader().loadAsync("assets/face.webp"),
-]);
-const rig = buildFaceRig(model, tesselation);
-const view = new FaceView($("face"), rig, texture);
-const animator = new FaceAnimator();
-$("loading").remove();
+// ── 얼굴 모델 ────────────────────────────────────────────
+// 모델마다 public/assets/models/<id>/ 에 배경 제거 사진(face.webp) + bake된 랜드마크(face-landmarks.json)
+const MODELS = [
+  { id: "default", name: "기본" },
+  { id: "monalisa", name: "모나리자" },
+];
+const modelDir = (id) => `assets/models/${id}/`;
+const tesselation = await fetch("src/face/tesselation.json").then((r) => r.json());
+const landmarkCache = new Map();
+const modelCache = new Map();
+const loadLandmarks = (id) => {
+  if (!landmarkCache.has(id)) landmarkCache.set(id, fetch(modelDir(id) + "face-landmarks.json").then((r) => r.json()));
+  return landmarkCache.get(id);
+};
+async function loadModel(id) {
+  if (!modelCache.has(id)) {
+    modelCache.set(id, (async () => {
+      const [m, texture] = await Promise.all([loadLandmarks(id), new THREE.TextureLoader().loadAsync(modelDir(id) + "face.webp")]);
+      return { rig: buildFaceRig(m, tesselation), texture };
+    })());
+  }
+  return modelCache.get(id);
+}
 
 const stage = $("stage");
+const animator = new FaceAnimator();
+let view = null;
+let modelId = null;
+let switching = null;
+
+async function setModel(id) {
+  if (!MODELS.some((m) => m.id === id)) id = MODELS[0].id;
+  if (id === modelId) return;
+  const my = (switching = id);
+  for (const b of document.querySelectorAll(".model-btn")) b.setAttribute("aria-busy", String(b.dataset.model === id));
+  const { rig, texture } = await loadModel(id);
+  if (switching !== my) return; // 그사이 다른 모델을 골랐다
+  // 캔버스를 새로 만들어 교체(이전 WebGL 컨텍스트는 해제)
+  const canvas = document.createElement("canvas");
+  canvas.id = "face";
+  canvas.setAttribute("aria-label", "메시지에 반응하는 얼굴 모델");
+  const next = new FaceView(canvas, rig, texture);
+  next.resize(stage.clientWidth, stage.clientHeight);
+  next.update(animator.out, { pitch: 0, yaw: 0, roll: 0, tx: 0, ty: 0, breath: 0 }); // 교체 순간 빈 화면 방지
+  const old = view;
+  (old ? old.renderer.domElement : $("face")).replaceWith(canvas);
+  old?.dispose();
+  view = next;
+  modelId = id;
+  animator.nextBlink = Math.min(animator.nextBlink, animator.time + 0.3); // 바뀌자마자 한 번 깜빡
+  for (const b of document.querySelectorAll(".model-btn")) {
+    b.setAttribute("aria-pressed", String(b.dataset.model === id));
+    b.removeAttribute("aria-busy");
+  }
+  try { localStorage.setItem("jev-face-model", id); } catch {}
+}
+
+// 모델 선택 버튼(얼굴 썸네일 포함)
+for (const m of MODELS) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "model-btn";
+  b.dataset.model = m.id;
+  b.title = `${m.name} 모델로 바꾸기`;
+  const av = document.createElement("span");
+  av.className = "avatar";
+  const name = document.createElement("span");
+  name.textContent = m.name;
+  b.append(av, name);
+  b.addEventListener("click", () => setModel(m.id));
+  $("models").append(b);
+  // 썸네일: 랜드마크로 얼굴 위치를 잡아 사진의 얼굴 부분만 보여 준다
+  loadLandmarks(m.id).then((lm) => {
+    const P = lm.points, U = Math.hypot(P[468][0] - P[473][0], P[468][1] - P[473][1]);
+    const size = 22, scale = size / (2.6 * U);
+    const cx = P[1][0], cy = P[1][1] - 0.25 * U;
+    av.style.backgroundImage = `url(${modelDir(m.id)}face.webp)`;
+    av.style.backgroundSize = `${lm.width * scale}px ${lm.height * scale}px`;
+    av.style.backgroundPosition = `${-(cx * scale - size / 2)}px ${-(cy * scale - size / 2)}px`;
+  });
+}
+
+let initialModel = new URLSearchParams(location.search).get("model");
+try { initialModel ||= localStorage.getItem("jev-face-model"); } catch {}
+await setModel(initialModel || MODELS[0].id);
+$("loading").remove();
 new ResizeObserver(() => view.resize(stage.clientWidth, stage.clientHeight)).observe(stage);
-view.resize(stage.clientWidth, stage.clientHeight);
 
 // ── Jev ─────────────────────────────────────────────────
 const jev = await new JevClient().init();
@@ -441,4 +509,4 @@ requestAnimationFrame(loop);
 
 // 초기 상태
 applyAnalysis(await jev.analyze(""));
-window.__jevFace = { rig, view, animator, jev, setMessage, typeOut };
+window.__jevFace = { get rig() { return view.rig; }, get view() { return view; }, animator, jev, setMessage, typeOut, setModel };

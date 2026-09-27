@@ -49,11 +49,17 @@ Jev 모드에서 타이핑할 때 한 사람이 보내는 호출 수입니다(�
 요청 제한은 함수 인스턴스 메모리 기반의 최선 노력 방식입니다. 여러 인스턴스에 걸쳐 엄격하게 막아야 하면
 Upstash Redis 같은 공유 저장소로 바꾸세요. 제한에 걸리면 앱은 그 입력만 로컬 시뮬레이터 결과로 보여 줍니다.
 
+## 얼굴 모델
+
+화면 오른쪽 위에서 모델(기본 / 모나리자)을 고를 수 있습니다. `?model=monalisa`처럼 주소로 지정할 수도 있습니다.
+모델을 추가하려면 `public/assets/models/<id>/`에 배경이 투명한 `face.webp`와 랜드마크 `face-landmarks.json`을 두고
+`public/src/main.js`의 `MODELS`에 `{ id, name }`을 추가합니다. 리그는 눈 사이 거리에 맞춰 자동으로 크기를 맞춥니다.
+
 ## 구조
 
 | 경로 | 역할 |
 | --- | --- |
-| `public/assets/face.webp`, `public/assets/face-landmarks.json` | 원본 사진과 bake된 MediaPipe 3D 랜드마크 478점 |
+| `public/assets/models/<id>/` | 모델별 배경 제거 사진(`face.webp`) + bake된 MediaPipe 3D 랜드마크 478점(`face-landmarks.json`) |
 | `public/src/face/faceRig.js` | 얼굴 메시(눈·입 구멍, 눈 내부/구강 레이어) + ARKit 52 모프 델타 생성 |
 | `public/src/face/faceView.js` | Three.js 렌더러: 델타 합성, 머리 회전, 시선(홍채) 셰이더, 홍조 |
 | `public/src/jev/jevClient.js` | Jev `POST /v1/systemone` 요청/응답 정규화, 호출 간격·캐시, 로컬 대체 |

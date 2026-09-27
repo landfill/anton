@@ -166,10 +166,18 @@ export class FaceView {
     for (const m of [mouth, eyes, skin]) { m.frustumCulled = false; this.scene.add(m); }
 
     // 화면 구도: 머리~가슴 (이미지 좌표)
-    this.frame = { cx: rig.anchors.faceCx, top: 0, bottom: Math.min(H, 880), halfW: 400 };
+    this.frame = { ...rig.frame };
     this.weights = new Float32Array(BLENDSHAPE_NAMES.length);
     this._rot = new THREE.Matrix4();
     this._euler = new THREE.Euler();
+  }
+
+  /** 모델을 바꿀 때 GPU 자원 해제(텍스처는 모델 캐시가 계속 쓰므로 남겨 둔다) */
+  dispose() {
+    this.scene.traverse((o) => o.geometry?.dispose());
+    for (const m of [this.skinMat, this.eyeMat, this.mouthMat]) m.dispose();
+    this.renderer.dispose();
+    this.renderer.forceContextLoss();
   }
 
   resize(width, height) {

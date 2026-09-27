@@ -127,17 +127,20 @@ export function buildFaceRig(model, tesselation) {
   const pivotY = (P[IDX.earR][1] + P[IDX.earL][1]) / 2;
   const oval = IDX.oval.map((i) => [P[i][0], P[i][1]]);
   const faceCx = P[168][0];
+  // 사진마다 얼굴 크기가 다르므로 픽셀 상수는 눈 사이 거리(U)에 비례시킨다(기준: 첫 모델 U≈151px)
+  const k = U / 151.4;
+  const headCy = P[10][1] + 0.92 * U; // 머리(머리카락 포함) 중심 높이
 
   // ── 정점 ────────────────────────────────────────────────
   const verts = []; // {x,y,z,u,v,head,lm}
   const headWeightAt = (x, y) => {
-    const d = Math.hypot((x - faceCx) / 280, (y - 300) / 340);
-    return (1 - smoothstep(0.9, 1.15, d)) * (1 - smoothstep(chinY + 15, chinY + 130, y));
+    const d = Math.hypot((x - faceCx) / (280 * k), (y - headCy) / (340 * k));
+    return (1 - smoothstep(0.9, 1.15, d)) * (1 - smoothstep(chinY + 15 * k, chinY + 130 * k, y));
   };
   const outerZ = (x, y, head) => {
-    const e = 1 - ((x - faceCx) / 300) ** 2 - ((y - 300) / 360) ** 2;
-    const zEll = -170 + 200 * Math.sqrt(Math.max(0, e));
-    return -220 + (zEll + 220) * head;
+    const e = 1 - ((x - faceCx) / (300 * k)) ** 2 - ((y - headCy) / (360 * k)) ** 2;
+    const zEll = (-170 + 200 * Math.sqrt(Math.max(0, e))) * k;
+    return -220 * k + (zEll + 220 * k) * head;
   };
   const pushVert = (x, y, z, head, extra = {}) => {
     verts.push({ x, y, z, u: x / W, v: 1 - y / H, head, ...extra });
@@ -150,18 +153,19 @@ export function buildFaceRig(model, tesselation) {
   // 얼굴 바깥 격자: 머리 주변은 촘촘히, 나머지는 성기게
   const gridPts = [];
   const addGrid = (x, y) => {
-    if (pointInPoly(x, y, oval) || distToPoly(x, y, oval) < 12) return;
-    if (gridPts.some(([gx, gy]) => Math.abs(gx - x) < 8 && Math.abs(gy - y) < 8)) return;
+    if (pointInPoly(x, y, oval) || distToPoly(x, y, oval) < 12 * k) return;
+    if (gridPts.some(([gx, gy]) => Math.abs(gx - x) < 8 * k && Math.abs(gy - y) < 8 * k)) return;
     gridPts.push([x, y]);
   };
-  const dense = { x0: faceCx - 360, x1: faceCx + 360, y0: 0, y1: Math.min(H, chinY + 220) };
-  for (let y = dense.y0; y <= dense.y1; y += 34) for (let x = dense.x0; x <= dense.x1; x += 34) addGrid(x, y);
-  for (let y = 0; y <= H; y += 85) for (let x = 0; x <= W; x += 85) {
+  const dense = { x0: faceCx - 360 * k, x1: faceCx + 360 * k, y0: 0, y1: Math.min(H, chinY + 220 * k) };
+  const fine = 34 * k, coarse = 85 * k;
+  for (let y = dense.y0; y <= dense.y1; y += fine) for (let x = dense.x0; x <= dense.x1; x += fine) addGrid(x, y);
+  for (let y = 0; y <= H; y += coarse) for (let x = 0; x <= W; x += coarse) {
     if (x > dense.x0 && x < dense.x1 && y < dense.y1) continue;
     addGrid(x, y);
   }
-  for (let x = 0; x <= W; x += 85) { addGrid(x, H); }
-  for (let y = 0; y <= H; y += 85) { addGrid(W, y); addGrid(0, y); }
+  for (let x = 0; x <= W; x += coarse) { addGrid(x, H); }
+  for (let y = 0; y <= H; y += coarse) { addGrid(W, y); addGrid(0, y); }
   addGrid(W, H); addGrid(W, 0); addGrid(0, H);
 
   const gridBase = verts.length;
@@ -424,7 +428,9 @@ export function buildFaceRig(model, tesselation) {
     W, H, U, verts, n,
     skinIndex: skin, eyeIndex: eyeTris, mouthIndex: mouthTris,
     deltas, aMouth, aCheek, eyeInfo,
-    pivot: [faceCx, chinY + 60, -60],
+    pivot: [faceCx, chinY + 60 * k, -60 * k],
+    // 기본 화면 구도(머리~가슴)
+    frame: { cx: faceCx, top: Math.max(0, P[10][1] - 1.5 * U), bottom: Math.min(H, chinY + 2.2 * U), halfW: 2.65 * U },
     anchors: { mouthCenter: mc, faceCx, eyes: { Left: P[473], Right: P[468] } },
   };
 }
